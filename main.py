@@ -1,49 +1,134 @@
-import praw
+import arrow
 import configparser
+import json
+import os
+import praw
 
-def rewrite_comment(comment):
-    comment.edit(".")
-
-def save_comment(comment):
-    print("{} : {}".format(comment.permalink, comment.body))
-
-def save_submission(submission):
-    print("{} : {}".format(submission.permalink, submission.title))
-
-def save_upvoted(submission):
-    save_submission(submission)
-
-def save_comment_summary(comment):
-    print("{} : {}".format(comment.permalink, comment.body[:20]))
-
-def save_saved(saved):
-    if isinstance(saved, praw.models.Comment):
-        save_comment_summary(saved)
-    elif isinstance(saved, praw.models.Submission):
-        save_submission(saved)
 
 def get_credentials():
     config = configparser.ConfigParser()
     config.read('credentials.ini')
     return config['reddit']
 
-def main():
-    reddit = praw.Reddit(**get_credentials())
 
+def setup_folder_structure(username):
+    ret = {
+        "submissions": "{}/submissions/".format(username),
+        "comments": "{}/comments/".format(username),
+        "upvoted": "{}/upvoted/".format(username),
+        "saved": "{}/saved/".format(username)
+    }
+    os.makedirs(ret['submissions'], exist_ok=True)
+    os.makedirs(ret['comments'], exist_ok=True)
+    os.makedirs(ret['upvoted'], exist_ok=True)
+    os.makedirs(ret['saved'], exist_ok=True)
+
+    return ret
+
+
+def archive_mode(reddit, folder_structure):
+    def save_json(filename, fmt, it):
+        with open(filename, 'w') as f:
+            entities = []
+            for entity in it:
+                entities.append(fmt(entity))
+            json.dump(entities, f)
+
+    def fmt_comment(comment):
+        created_utc = arrow.get(comment.created_utc)
+        return {
+            "body": comment.body,
+            "permalink": comment.permalink,
+            "created_utc": created_utc.isoformat(),
+        }
+
+    def fmt_submission(submission):
+        created_utc = arrow.get(submission.created_utc)
+        return {
+            "title": submission.title,
+            "permalink": submission.url,
+            "created_utc": created_utc.isoformat(),
+            "selftext": submission.selftext,
+        }
+
+    def summarise(text):
+        if len(text) > 50:
+            return text[:50] + "..."
+        return text
+
+    def fmt_submission_summary(submission):
+        created_utc = arrow.get(submission.created_utc)
+        return {
+            "title": submission.title,
+            "permalink": submission.url,
+            "created_utc": created_utc.isoformat(),
+            "selftext_summary": summarise(submission.selftext),
+        }
+
+    def fmt_comment_summary(comment):
+        created_utc = arrow.get(comment.created_utc)
+        return {
+            "body": summarise(comment.body),
+            "permalink": comment.permalink,
+            "created_utc": created_utc.isoformat(),
+        }
+
+    def fmt_saved(saved):
+        if isinstance(saved, praw.models.Comment):
+            return fmt_comment_summary(saved)
+        elif isinstance(saved, praw.models.Submission):
+            return fmt_submission_summary(saved)
+
+    def save_comments():
+        comments_filename = os.path.join(folder_structure['comments'], 'posts')
+        print("saving all comments to {}".format(comments_filename))
+        save_json(comments_filename,
+                  fmt_comment,
+                  reddit.user.me().comments.new())
+
+    def save_submissions():
+        submissions_filename = os.path.join(
+                folder_structure['submissions'], 'posts')
+        print("saving all submissions to {}".format(submissions_filename))
+        save_json(submissions_filename,
+                  fmt_submission,
+                  reddit.user.me().submissions.new())
+
+    def save_upvoted():
+        upvoted_filename = os.path.join(folder_structure['upvoted'], 'posts')
+        print("saving all upvoted submissions to {}".format(upvoted_filename))
+        save_json(upvoted_filename,
+                  fmt_submission_summary,
+                  reddit.user.me().upvoted())
+
+    def save_saved():
+        saved_filename = os.path.join(folder_structure['saved'], 'posts')
+        print("saving all saved posts to {}".format(saved_filename))
+        save_json(saved_filename, fmt_saved, reddit.user.me().saved())
+
+    save_comments()
+    save_submissions()
+    save_upvoted()
+    save_saved()
+
+
+def shred_mode(reddit):
     for comment in reddit.user.me().comments.new():
-        save_comment(comment)
-        rewrite_comment(comment)
+        comment.edit(".")
         comment.delete()
 
     for submission in reddit.user.me().submissions.new():
-        save_submission(submission)
         submission.delete()
 
-    for upvoted in reddit.user.me().upvoted():
-        save_upvoted(upvoted)
 
-    for saved in reddit.user.me().saved():
-        save_saved(saved)
+def main():
+    reddit = praw.Reddit(**get_credentials())
+
+    folder_structure = setup_folder_structure(reddit.user.me().name)
+    archive_mode(reddit, folder_structure)
+
+    shred_mode(reddit)
+
 
 if __name__ == "__main__":
     main()
