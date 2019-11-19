@@ -136,7 +136,8 @@ def main():
         action="store_true")
     parser.add_argument(
         "-a", "--archive",
-        help="Write shreddit and praw config files to current directory.",
+        help="Run archive mode: backup comments, submissions, "
+             "upvoted submissions and saved posts",
         action="store_true")
     args = parser.parse_args()
 
