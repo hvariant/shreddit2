@@ -3,11 +3,12 @@ import configparser
 import json
 import os
 import praw
+import argparse
 
 
-def get_credentials():
+def get_credentials(config_filename):
     config = configparser.ConfigParser()
-    config.read('credentials.ini')
+    config.read(config_filename)
     return config['reddit']
 
 
@@ -113,21 +114,41 @@ def archive_mode(reddit, folder_structure):
 
 
 def shred_mode(reddit):
+    print("deleting all comments")
     for comment in reddit.user.me().comments.new():
         comment.edit(".")
         comment.delete()
 
+    print("deleting all submissions")
     for submission in reddit.user.me().submissions.new():
         submission.delete()
 
 
 def main():
-    reddit = praw.Reddit(**get_credentials())
+    parser = argparse.ArgumentParser(
+        description="command line arguments for this script")
+    parser.add_argument(
+        "-c", "--config",
+        help="Configuration file", default="credentials.ini")
+    parser.add_argument(
+        "-d", "--shred",
+        help="Run Shred mode: delete all comments and submissions.",
+        action="store_true")
+    parser.add_argument(
+        "-a", "--archive",
+        help="Write shreddit and praw config files to current directory.",
+        action="store_true")
+    args = parser.parse_args()
 
-    folder_structure = setup_folder_structure(reddit.user.me().name)
-    archive_mode(reddit, folder_structure)
+    print("logging in using credentials found in {}".format(args.config))
+    reddit = praw.Reddit(**get_credentials(args.config))
 
-    shred_mode(reddit)
+    if args.archive:
+        folder_structure = setup_folder_structure(reddit.user.me().name)
+        archive_mode(reddit, folder_structure)
+
+    if args.shred:
+        shred_mode(reddit)
 
 
 if __name__ == "__main__":
